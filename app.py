@@ -11,7 +11,7 @@ HOURS_FILE = "hours.csv"
 st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
-# LOAD / SAVE SAFE
+# LOAD / SAVE
 # =========================
 def load_csv(file, cols):
     if os.path.exists(file):
@@ -24,7 +24,6 @@ def load_csv(file, cols):
 def save_csv(df, file):
     df.to_csv(file, index=False)
 
-# LOAD DATA
 checks = load_csv(DATA_FILE, ["Date","Time","Driver","Vehicle","Odometer","Latitude","Longitude","Defects","Status"])
 jobs = load_csv(JOBS_FILE, ["Date","Vehicle","Job","Engineer","Status"])
 hours = load_csv(HOURS_FILE, ["Driver","Vehicle","Type","Start","End","Duration","Latitude","Longitude"])
@@ -32,11 +31,11 @@ hours = load_csv(HOURS_FILE, ["Driver","Vehicle","Type","Start","End","Duration"
 # =========================
 # SESSION
 # =========================
-if "current_hours" not in st.session_state:
-    st.session_state.current_hours = None
-
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+
+if "current_hours" not in st.session_state:
+    st.session_state.current_hours = None
 
 # =========================
 # USERS
@@ -89,7 +88,7 @@ if page == "Driver":
 
     vehicle = st.selectbox("Vehicle", VEHICLES)
 
-    # -------- GPS --------
+    # ================= GPS =================
     st.subheader("GPS")
 
     st.components.v1.html("""
@@ -102,24 +101,64 @@ if page == "Driver":
     ">Get GPS</button>
     """, height=50)
 
-    params = st.experimental_get_query_params()
-    lat = params.get("lat", [""])[0]
-    lon = params.get("lon", [""])[0]
+    params = st.query_params
+    lat = params.get("lat", "")
+    lon = params.get("lon", "")
 
     c1, c2 = st.columns(2)
     lat = c1.text_input("Latitude", lat)
     lon = c2.text_input("Longitude", lon)
 
-    # -------- HOURS --------
+    # ================= HOURS =================
     st.subheader("Driver Hours")
 
+    def get_driver_data():
+        df = hours[hours["Driver"] == st.session_state.user].copy()
+        if not df.empty:
+            df["Start"] = pd.to_datetime(df["Start"], errors="coerce")
+        return df
+
+    def can_drive():
+        df = get_driver_data()
+
+        if df.empty:
+            return True
+
+        today = datetime.now().date()
+        week_start = today - timedelta(days=today.weekday())
+
+        today_df = df[df["Start"].dt.date == today]
+        week_df = df[df["Start"].dt.date >= week_start]
+
+        drive_today = today_df[today_df["Type"] == "DRIVING"]["Duration"].sum()
+        drive_week = week_df[week_df["Type"] == "DRIVING"]["Duration"].sum()
+
+        if drive_today >= 540:
+            return False, "Daily limit reached (9h)"
+        if drive_week >= 3360:
+            return False, "Weekly limit reached (56h)"
+
+        if st.session_state.current_hours:
+            elapsed = int((datetime.now() - st.session_state.current_hours["start"]).total_seconds() / 60)
+            if elapsed >= 270:
+                return False, "4.5 hour limit reached - must rest"
+
+        return True, ""
+
     def start_hours(activity):
-        now = datetime.now()
+
+        if activity == "DRIVING":
+            allowed, msg = can_drive()
+            if allowed is False:
+                st.error(msg)
+                return
+
         if st.session_state.current_hours:
             stop_hours()
+
         st.session_state.current_hours = {
             "type": activity,
-            "start": now
+            "start": datetime.now()
         }
 
     def stop_hours():
@@ -130,6 +169,7 @@ if page == "Driver":
 
         end = datetime.now()
         start = st.session_state.current_hours["start"]
+
         duration = int((end - start).total_seconds() / 60)
 
         new = {
@@ -149,6 +189,7 @@ if page == "Driver":
         st.session_state.current_hours = None
 
     b1, b2, b3, b4 = st.columns(4)
+
     b1.button("Driving", on_click=start_hours, args=("DRIVING",))
     b2.button("Rest", on_click=start_hours, args=("REST",))
     b3.button("POA", on_click=start_hours, args=("POA",))
@@ -156,7 +197,7 @@ if page == "Driver":
 
     st.button("Stop", on_click=stop_hours)
 
-    # -------- LIVE TIMER --------
+    # ================= LIVE =================
     if st.session_state.current_hours:
         elapsed = int((datetime.now() - st.session_state.current_hours["start"]).total_seconds() / 60)
 
@@ -164,17 +205,16 @@ if page == "Driver":
 
         if st.session_state.current_hours["type"] == "DRIVING":
             if elapsed >= 270:
-                st.error("OVER 4.5 HOURS - STOP")
+                st.error("LOCKED - Must rest now")
             elif elapsed >= 240:
                 st.warning("Approaching 4.5 hours")
 
     st.divider()
 
-    # -------- SUMMARY --------
-    df_user = hours[hours["Driver"] == st.session_state.user].copy()
+    # ================= SUMMARY =================
+    df_user = get_driver_data()
 
     if not df_user.empty:
-        df_user["Start"] = pd.to_datetime(df_user["Start"], errors="coerce")
 
         today = datetime.now().date()
         week_start = today - timedelta(days=today.weekday())
@@ -190,9 +230,9 @@ if page == "Driver":
         st.write(f"Week: {drive_week} mins")
 
         if drive_today >= 540:
-            st.error("Daily limit reached (9h)")
-        elif drive_today >= 480:
-            st.warning("Near daily limit")
+            st.error("Daily limit hit")
+        if drive_week >= 3360:
+            st.error("Weekly limit hit")
 
     st.subheader("Logs")
     st.dataframe(df_user, use_container_width=True)
