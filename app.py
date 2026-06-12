@@ -5,32 +5,37 @@ from datetime import datetime, timedelta
 
 st.set_page_config(page_title="FleetCheck Pro", layout="wide")
 
+# =========================
+# FILES
+# =========================
 HOURS_FILE = "hours.csv"
 CHECKS_FILE = "data.csv"
+JOBS_FILE = "jobs.csv"
+PHOTO_DIR = "photos"
+
+os.makedirs(PHOTO_DIR, exist_ok=True)
 
 # =========================
-# SAFE LOAD / SAVE
+# LOAD / SAVE
 # =========================
 def load_csv(file, cols):
     if os.path.exists(file):
         try:
-            df = pd.read_csv(file)
+            return pd.read_csv(file)
         except:
-            df = pd.DataFrame(columns=cols)
-    else:
-        df = pd.DataFrame(columns=cols)
-    return df
+            return pd.DataFrame(columns=cols)
+    return pd.DataFrame(columns=cols)
 
 def save_csv(df, file):
     df.to_csv(file, index=False)
 
-hours = load_csv(HOURS_FILE, [
-    "Driver","Vehicle","Type","Start","End","Duration","Latitude","Longitude"
-])
+hours_cols = ["Driver","Vehicle","Type","Start","End","Duration","Latitude","Longitude"]
+checks_cols = ["Date","Time","Driver","Vehicle","Latitude","Longitude","Defects","Status"]
+jobs_cols = ["Date","Vehicle","Job","Status"]
 
-checks = load_csv(CHECKS_FILE, [
-    "Date","Time","Driver","Vehicle","Latitude","Longitude","Defects","Status"
-])
+hours = load_csv(HOURS_FILE, hours_cols)
+checks = load_csv(CHECKS_FILE, checks_cols)
+jobs = load_csv(JOBS_FILE, jobs_cols)
 
 # =========================
 # SESSION
@@ -44,7 +49,7 @@ if "current" not in st.session_state:
 # =========================
 # LOGIN
 # =========================
-USERS = {"david":"1234","john":"1234"}
+users = {"david":"1234","john":"1234"}
 
 if not st.session_state.logged_in:
     st.title("FleetCheck Pro")
@@ -53,7 +58,7 @@ if not st.session_state.logged_in:
     p = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        if u in USERS and USERS[u] == p:
+        if u in users and users[u] == p:
             st.session_state.logged_in = True
             st.session_state.user = u
             st.rerun()
@@ -65,7 +70,7 @@ if not st.session_state.logged_in:
 # =========================
 # NAV
 # =========================
-page = st.radio("", ["Driver","AI"], horizontal=True)
+page = st.radio("", ["Driver","Jobs","AI"], horizontal=True)
 
 # =========================
 # DRIVER PAGE
@@ -76,15 +81,15 @@ if page == "Driver":
 
     vehicle = st.selectbox("Vehicle", ["AB12 XYZ","BT23 FLEET"])
 
-    # ================= GPS =================
+    # -------- GPS --------
     st.subheader("GPS")
     lat = st.text_input("Latitude")
     lon = st.text_input("Longitude")
 
     # ================= CHECKS =================
-    st.subheader("Daily Vehicle Check")
+    st.subheader("Vehicle Check")
 
-    checks_list = [
+    check_items = [
         "Tyres","Brakes","Lights","Mirrors",
         "Horn","Seatbelt","Oil","Coolant",
         "Load Secure","Plates"
@@ -92,15 +97,16 @@ if page == "Driver":
 
     results = {}
     notes = {}
+    photos_data = {}
 
-    for item in checks_list:
+    for item in check_items:
 
         st.markdown(f"### {item}")
 
         status = st.radio(
             item,
             ["PASS","FAIL","NA"],
-            key=f"{item}",
+            key=item,
             horizontal=True
         )
 
@@ -108,13 +114,22 @@ if page == "Driver":
 
         if status == "FAIL":
             notes[item] = st.text_area(f"{item} note", key=f"{item}_note")
-            st.file_uploader(f"{item} photo", key=f"{item}_photo")
 
-    overall_status = "PASS"
+            photo = st.file_uploader(f"{item} photo", key=f"{item}_photo")
+            if photo:
+                filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{item}.jpg"
+                path = os.path.join(PHOTO_DIR, filename)
+
+                with open(path, "wb") as f:
+                    f.write(photo.getbuffer())
+
+                photos_data[item] = filename
+
+    overall = "PASS"
     if "FAIL" in results.values():
-        overall_status = "FAIL"
+        overall = "FAIL"
 
-    if overall_status == "FAIL":
+    if overall == "FAIL":
         st.error("Vehicle FAILED")
     else:
         st.success("Vehicle PASSED")
@@ -122,9 +137,13 @@ if page == "Driver":
     # SAVE CHECK
     if st.button("Save Check"):
 
-        defect_text = " | ".join([f"{k}:{v}" for k, v in notes.items()])
+        defects = []
+        for k,v in notes.items():
+            defects.append(f"{k}:{v}")
 
-        new = pd.DataFrame([{
+        defect_text = " | ".join(defects)
+
+        new_check = pd.DataFrame([{
             "Date": datetime.now().strftime("%Y-%m-%d"),
             "Time": datetime.now().strftime("%H:%M:%S"),
             "Driver": st.session_state.user,
@@ -132,13 +151,27 @@ if page == "Driver":
             "Latitude": lat,
             "Longitude": lon,
             "Defects": defect_text,
-            "Status": overall_status
+            "Status": overall
         }])
 
-        updated = pd.concat([checks, new], ignore_index=True)
-        save_csv(updated, CHECKS_FILE)
+        checks = pd.concat([checks, new_check], ignore_index=True)
+        save_csv(checks, CHECKS_FILE)
 
-        st.success("Check saved ✅")
+        # AUTO JOB CREATE IF FAIL
+        if overall == "FAIL":
+            for k,v in notes.items():
+                new_job = pd.DataFrame([{
+                    "Date": datetime.now().strftime("%Y-%m-%d"),
+                    "Vehicle": vehicle,
+                    "Job": f"{k}: {v}",
+                    "Status": "OPEN"
+                }])
+
+                jobs = pd.concat([jobs, new_job], ignore_index=True)
+
+            save_csv(jobs, JOBS_FILE)
+
+        st.success("Saved ✅")
         st.rerun()
 
     st.divider()
@@ -146,52 +179,132 @@ if page == "Driver":
     # ================= HOURS =================
     st.subheader("Driver Hours")
 
-    def get_user_hours():
-        df = load_csv(HOURS_FILE, [
-            "Driver","Vehicle","Type","Start","End","Duration","Latitude","Longitude"
-        ])
+    def get_hours():
+        df = load_csv(HOURS_FILE, hours_cols)
         df = df[df["Driver"] == st.session_state.user]
         if not df.empty:
-            df["Start"] = pd.to_datetime(df["Start"], errors="coerce")
+            df["Start"] = pd.to_datetime(df["Start"])
         return df
 
-    def limits_ok():
-
-        df = get_user_hours()
-        today = datetime.now().date()
-        week_start = today - timedelta(days=today.weekday())
+    def can_drive():
+        df = get_hours()
 
         if not df.empty:
-            today_df = df[df["Start"].dt.date == today]
-            week_df = df[df["Start"].dt.date >= week_start]
+            today = datetime.now().date()
+            week_start = today - timedelta(days=today.weekday())
 
-            if today_df["Duration"].sum() >= 540:
+            today_drive = df[df["Start"].dt.date == today]["Duration"].sum()
+            week_drive = df[df["Start"].dt.date >= week_start]["Duration"].sum()
+
+            if today_drive >= 540:
                 return False
-
-            if week_df["Duration"].sum() >= 3360:
+            if week_drive >= 3360:
                 return False
 
         if st.session_state.current:
-            mins = int((datetime.now() - st.session_state.current["start"]).total_seconds() / 60)
+            mins = int((datetime.now() - st.session_state.current["start"]).total_seconds()/60)
             if mins >= 270:
                 return False
 
         return True
 
-    def start(type):
-
-        if type == "DRIVING" and not limits_ok():
-            st.error("Driving blocked (DVSA limit reached)")
+    def start(act):
+        if act == "DRIVING" and not can_drive():
+            st.error("Driving blocked (DVSA)")
             return
-
-        st.session_state.current = {
-            "type": type,
-            "start": datetime.now()
-        }
+        st.session_state.current = {"type": act, "start": datetime.now()}
 
     def stop():
-
         if not st.session_state.current:
             return
 
-        df = load_csv(HOURS_FILE, [
+        df = load_csv(HOURS_FILE, hours_cols)
+
+        start_t = st.session_state.current["start"]
+        end_t = datetime.now()
+
+        mins = int((end_t - start_t).total_seconds()/60)
+
+        new = pd.DataFrame([{
+            "Driver": st.session_state.user,
+            "Vehicle": vehicle,
+            "Type": st.session_state.current["type"],
+            "Start": start_t,
+            "End": end_t,
+            "Duration": mins,
+            "Latitude": lat,
+            "Longitude": lon
+        }])
+
+        df = pd.concat([df, new], ignore_index=True)
+        save_csv(df, HOURS_FILE)
+
+        st.session_state.current = None
+        st.rerun()
+
+    c1,c2,c3,c4 = st.columns(4)
+    c1.button("Driving", on_click=start, args=("DRIVING",))
+    c2.button("Rest", on_click=start, args=("REST",))
+    c3.button("POA", on_click=start, args=("POA",))
+    c4.button("Other", on_click=start, args=("OTHER",))
+
+    st.button("Stop Activity", on_click=stop)
+
+    if st.session_state.current:
+        mins = int((datetime.now() - st.session_state.current["start"]).total_seconds()/60)
+        st.info(f"{st.session_state.current['type']} - {mins} mins")
+
+    st.dataframe(get_hours())
+
+# =========================
+# JOBS PAGE
+# =========================
+if page == "Jobs":
+
+    st.header("Jobs")
+
+    jobs = load_csv(JOBS_FILE, jobs_cols)
+
+    if jobs.empty:
+        st.info("No jobs")
+    else:
+        for i,row in jobs.iterrows():
+            c1,c2 = st.columns([3,1])
+            c1.write(f"{row['Vehicle']} - {row['Job']}")
+
+            if row["Status"] == "OPEN":
+                if c2.button("Complete", key=i):
+                    jobs.loc[i,"Status"] = "DONE"
+                    save_csv(jobs, JOBS_FILE)
+                    st.rerun()
+
+    st.dataframe(jobs)
+
+# =========================
+# AI PAGE
+# =========================
+if page == "AI":
+
+    st.header("AI Analysis")
+
+    df = load_csv(HOURS_FILE, hours_cols)
+
+    if df.empty:
+        st.info("No data")
+    else:
+        for d in df["Driver"].unique():
+
+            ddf = df[df["Driver"] == d]
+            total = ddf[ddf["Type"]=="DRIVING"]["Duration"].sum()
+
+            st.write("---")
+            st.write(f"Driver: {d}")
+            st.write(f"Driving total: {total}")
+
+            if total > 3000:
+                st.warning("High workload")
+
+            violations = ddf[ddf["Duration"] > 270]
+            if not violations.empty:
+                st.error("Violations detected")
+                st.dataframe(violations)
