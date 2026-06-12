@@ -1,0 +1,5 @@
+Date,Time,Driver,Vehicle,Odometer,Tyres,Brakes,Lights,Defects,Status
+2026-06-12,03:40:14,john,fvfv,566333,True,True,True,NIL DEFECT,PASS
+2026-06-12,03:44:01,john,fvfv,330,True,True,True,NIL DEFECT,PASS
+2026-06-12,03:51:00,john,jj,563,True,True,True,NIL DEFECT,PASS
+2026-06-12,03:52:58,john,qd,44,True,True,True,NIL DEFECT,PASS
