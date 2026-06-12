@@ -9,65 +9,32 @@ JOBS_FILE = "jobs.csv"
 st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
-# FULL PRO UI STYLE
+# STYLE
 # =========================
 st.markdown("""
 <style>
-
-/* Base */
 html, body {
     background-color: #0b1220;
     color: #e2e8f0;
 }
-
-/* Layout */
 .block-container {
-    max-width: 1200px;
+    max-width: 1100px;
     margin: auto;
 }
-
-/* Top Bar */
 .topbar {
-    background: linear-gradient(90deg, #020617, #0f172a);
-    padding: 18px;
-    border-radius: 12px;
-    margin-bottom: 25px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    background:#020617;
+    padding:15px;
+    border-radius:10px;
+    margin-bottom:20px;
 }
-
-.brand {
-    font-size: 26px;
-    font-weight: 600;
-}
-
-/* Cards */
 .card {
-    background: #1e293b;
-    padding: 22px;
-    border-radius: 14px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    background:#1c2433;
+    padding:20px;
+    border-radius:12px;
+    margin-bottom:20px;
 }
-
-/* Buttons */
-button[kind="primary"] {
-    background-color: #3b82f6 !important;
-    border-radius: 10px !important;
-}
-
-/* Status */
-.pass {
-    color: #22c55e;
-    font-weight: bold;
-}
-
-.fail {
-    color: #ef4444;
-    font-weight: bold;
-}
-
+.pass {color:#10b981; font-weight:bold;}
+.fail {color:#ef4444; font-weight:bold;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -99,7 +66,7 @@ df = load_data()
 jobs = load_jobs()
 
 # =========================
-# DEMO DATA (SO APP NEVER EMPTY)
+# DEMO DATA
 # =========================
 if df.empty:
     df = pd.DataFrame([{
@@ -134,7 +101,7 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
 
-    st.markdown("<h1>🚚 FleetCheck Pro</h1>", unsafe_allow_html=True)
+    st.title("FleetCheck Pro")
     st.write("Vehicle Inspection & Compliance System")
 
     u = st.text_input("Username").lower()
@@ -152,14 +119,12 @@ if not st.session_state.logged_in:
     st.stop()
 
 # =========================
-# HEADER + LOGOUT
+# HEADER
 # =========================
-st.markdown(f"""
-<div class="topbar">
-    <div class="brand">FleetCheck Pro</div>
-    <div>User: {st.session_state.user}</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    f"<div class='topbar'>User: {st.session_state.user}</div>",
+    unsafe_allow_html=True
+)
 
 if st.button("Logout"):
     st.session_state.logged_in = False
@@ -187,6 +152,7 @@ if page == "Driver":
     odo = col2.number_input("Odometer", 0)
 
     st.subheader("GPS")
+
     col1, col2 = st.columns(2)
     lat = col1.text_input("Latitude")
     lon = col2.text_input("Longitude")
@@ -204,9 +170,12 @@ if page == "Driver":
     load = st.checkbox("Load Secure")
     plates = st.checkbox("Plates")
 
-    ok = all([tyres,brakes,lights,mirrors,horn,seatbelt,oil,coolant,load,plates])
+    ok = all([
+        tyres,brakes,lights,mirrors,horn,
+        seatbelt,oil,coolant,load,plates
+    ])
 
-    st.subheader("📸 Photos")
+    st.subheader("Photos")
 
     front = st.file_uploader("Front")
     back = st.file_uploader("Back")
@@ -214,11 +183,95 @@ if page == "Driver":
     right = st.file_uploader("Right")
 
     if ok:
-        st.markdown("<div class='pass'>✅ PASS</div>", unsafe_allow_html=True)
+        st.markdown("<div class='pass'>PASS</div>", unsafe_allow_html=True)
         defect = "NIL DEFECT"
     else:
-        st.markdown("<div class='fail'>❌ FAIL</div>", unsafe_allow_html=True)
+        st.markdown("<div class='fail'>FAIL</div>", unsafe_allow_html=True)
         defect = st.text_area("Defect")
 
-    if st.button("Submit Check"):
+    if st.button("Submit"):
 
+        now = datetime.now()
+
+        row = {
+            "Date": now.strftime("%Y-%m-%d"),
+            "Time": now.strftime("%H:%M:%S"),
+            "Driver": st.session_state.user,
+            "Vehicle": vehicle,
+            "Odometer": odo,
+            "Latitude": lat,
+            "Longitude": lon,
+            "Defects": defect,
+            "Status": "PASS" if ok else "FAIL"
+        }
+
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+        save_data(df)
+
+        st.success("Saved")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================
+# DASHBOARD
+# =========================
+if page == "Dashboard":
+
+    st.metric("Total Checks", len(df))
+    st.metric("Active Defects", len(df[df["Status"]=="FAIL"]))
+    st.metric("Fixed", len(df[df["Status"]=="FIXED"]))
+
+    st.dataframe(df, use_container_width=True)
+
+# =========================
+# JOBS
+# =========================
+if page == "Jobs":
+
+    veh = st.selectbox("Vehicle", VEHICLES)
+    job = st.text_input("Job")
+    eng = st.text_input("Engineer")
+
+    if st.button("Add Job"):
+
+        new_job = {
+            "Date": datetime.now().strftime("%Y-%m-%d"),
+            "Vehicle": veh,
+            "Job": job,
+            "Engineer": eng,
+            "Status": "OPEN"
+        }
+
+        jobs = pd.concat([jobs, pd.DataFrame([new_job])], ignore_index=True)
+        save_jobs(jobs)
+
+        st.success("Job added")
+
+    st.dataframe(jobs, use_container_width=True)
+
+# =========================
+# WORKSHOP
+# =========================
+if page == "Workshop":
+
+    open_jobs = jobs[jobs["Status"]=="OPEN"]
+
+    for i, r in open_jobs.iterrows():
+        col1, col2 = st.columns([3,1])
+        col1.write(f"{r['Vehicle']} - {r['Job']}")
+        if col2.button("Complete", key=i):
+            jobs.loc[i,"Status"] = "COMPLETE"
+            save_jobs(jobs)
+            st.rerun()
+
+    st.subheader("Fix Defects")
+
+    fails = df[df["Status"]=="FAIL"]
+
+    for i, r in fails.iterrows():
+        col1, col2 = st.columns([3,1])
+        col1.write(f"{r['Vehicle']} - {r['Defects']}")
+        if col2.button("Fix", key=f"f{i}"):
+            df.loc[i,"Status"] = "FIXED"
+            save_data(df)
+            st.rerun()
