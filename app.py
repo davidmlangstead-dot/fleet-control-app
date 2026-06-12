@@ -1,23 +1,17 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime, timedelta
-import smtplib
-from email.message import EmailMessage
+from datetime import datetime
 
 st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
 # FILES
 # =========================
-HOURS_FILE = "hours.csv"
-CHECKS_FILE = "data.csv"
-JOBS_FILE = "jobs.csv"
-SETTINGS_FILE = "settings.csv"
 USERS_FILE = "users.csv"
-PHOTO_DIR = "photos"
-
-os.makedirs(PHOTO_DIR, exist_ok=True)
+JOBS_FILE = "jobs.csv"
+CHECKS_FILE = "checks.csv"
+VEHICLE_FILE = "vehicles.csv"
 
 # =========================
 # LOAD / SAVE
@@ -25,17 +19,10 @@ os.makedirs(PHOTO_DIR, exist_ok=True)
 def load_csv(file, cols):
     if os.path.exists(file):
         try:
-            df = pd.read_csv(file)
+            return pd.read_csv(file)
         except:
-            df = pd.DataFrame(columns=cols)
-    else:
-        df = pd.DataFrame(columns=cols)
-
-    for c in cols:
-        if c not in df.columns:
-            df[c] = ""
-
-    return df
+            return pd.DataFrame(columns=cols)
+    return pd.DataFrame(columns=cols)
 
 def save_csv(df, file):
     df.to_csv(file, index=False)
@@ -43,51 +30,26 @@ def save_csv(df, file):
 # =========================
 # INIT FILES
 # =========================
-hours_cols = ["Driver","Vehicle","Type","Start","End","Duration","Latitude","Longitude"]
-checks_cols = ["Date","Time","Driver","Vehicle","Latitude","Longitude","Defects","Status"]
-jobs_cols = ["Date","Vehicle","Job","Status"]
-users_cols = ["Username","Password","Role"]
-
 if not os.path.exists(USERS_FILE):
     pd.DataFrame([
-        {"Username":"office","Password":"admin","Role":"office"}
+        {"Username":"office","Password":"admin","Role":"office"},
+        {"Username":"manager","Password":"manager","Role":"manager"}
     ]).to_csv(USERS_FILE, index=False)
 
-# =========================
-# EMAIL FUNCTION
-# =========================
-def send_email_alert(subject, body):
-    settings = load_csv(SETTINGS_FILE, ["Email","Password"])
-    if settings.empty:
-        return
-
-    sender = settings.iloc[0]["Email"]
-    password = settings.iloc[0]["Password"]
-
-    try:
-        msg = EmailMessage()
-        msg.set_content(body)
-        msg["Subject"] = subject
-        msg["From"] = sender
-        msg["To"] = sender
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(sender, password)
-            smtp.send_message(msg)
-    except:
-        pass
+if not os.path.exists(VEHICLE_FILE):
+    pd.DataFrame({"Vehicle":["AB12 XYZ"]}).to_csv(VEHICLE_FILE, index=False)
 
 # =========================
 # LOGIN
 # =========================
-users = load_csv(USERS_FILE, users_cols)
+users = load_csv(USERS_FILE, ["Username","Password","Role"])
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
 
-    st.title("FleetCheck Pro")
+    st.title("FleetCheck Pro Login")
 
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
@@ -106,220 +68,204 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-# =========================
-# NAV
-# =========================
-menu = ["Driver Hours","Jobs","RHA Check","Manager","Settings"]
-
-if st.session_state.role == "office":
-    menu.append("Users")
-
-app = st.sidebar.radio("App", menu)
-
-vehicle = st.sidebar.selectbox("Vehicle", ["AB12 XYZ","BT23 FLEET"])
-lat = st.sidebar.text_input("Latitude")
-lon = st.sidebar.text_input("Longitude")
+role = st.session_state.role
 
 # =========================
-# DRIVER HOURS
+# LOAD DATA
 # =========================
-if app == "Driver Hours":
-
-    st.header("Driver Hours")
-
-    current = st.session_state.get("current")
-
-    def get_hours():
-        df = load_csv(HOURS_FILE, hours_cols)
-        return df[df["Driver"] == st.session_state.user]
-
-    def start(t):
-        st.session_state.current = {"type": t, "start": datetime.now()}
-
-    def stop():
-        if not st.session_state.current:
-            return
-
-        df = load_csv(HOURS_FILE, hours_cols)
-
-        start = st.session_state.current["start"]
-        end = datetime.now()
-        mins = int((end-start).total_seconds()/60)
-
-        new = pd.DataFrame([{
-            "Driver": st.session_state.user,
-            "Vehicle": vehicle,
-            "Type": st.session_state.current["type"],
-            "Start": start,
-            "End": end,
-            "Duration": mins,
-            "Latitude": lat,
-            "Longitude": lon
-        }])
-
-        df = pd.concat([df, new], ignore_index=True)
-        save_csv(df, HOURS_FILE)
-
-        st.session_state.current = None
-        st.rerun()
-
-    c1,c2,c3,c4 = st.columns(4)
-    c1.button("Driving", on_click=start, args=("DRIVING",))
-    c2.button("Rest", on_click=start, args=("REST",))
-    c3.button("POA", on_click=start, args=("POA",))
-    c4.button("Other", on_click=start, args=("OTHER",))
-
-    st.button("Stop", on_click=stop)
-
-    if current:
-        mins = int((datetime.now() - current["start"]).total_seconds()/60)
-        st.info(f"{current['type']} - {mins} mins")
-
-    st.dataframe(get_hours().tail(10))
+jobs = load_csv(JOBS_FILE, ["Date","Vehicle","Job","Status"])
+checks = load_csv(CHECKS_FILE, ["Date","Driver","Vehicle","Status","Defects"])
+vehicles_df = load_csv(VEHICLE_FILE, ["Vehicle"])
+vehicles = vehicles_df["Vehicle"].tolist()
 
 # =========================
-# JOBS
+# DRIVER VIEW
 # =========================
-if app == "Jobs":
+if role == "driver":
 
-    st.header("Jobs")
+    st.header("Driver Panel")
 
-    jobs = load_csv(JOBS_FILE, jobs_cols)
+    tab1, tab2 = st.tabs(["RHA Check","Jobs"])
 
-    job_text = st.text_input("New job")
+    # -------------------
+    # CHECKS
+    # -------------------
+    with tab1:
 
-    if st.button("Add Job"):
-        new = pd.DataFrame([{
-            "Date": datetime.now().strftime("%Y-%m-%d"),
-            "Vehicle": vehicle,
-            "Job": job_text,
-            "Status": "OPEN"
-        }])
-        jobs = pd.concat([jobs, new], ignore_index=True)
-        save_csv(jobs, JOBS_FILE)
-        st.rerun()
+        vehicle = st.selectbox("Vehicle", vehicles)
 
-    for i,row in jobs.iterrows():
-        c1,c2 = st.columns([3,1])
-        c1.write(row["Job"])
-        if row["Status"]=="OPEN":
-            if c2.button("Done", key=i):
-                jobs.loc[i,"Status"]="DONE"
-                save_csv(jobs, JOBS_FILE)
-                st.rerun()
+        items = ["Tyres","Brakes","Lights","Mirrors"]
+
+        results = {}
+        notes = {}
+
+        for i in items:
+            st.subheader(i)
+            status = st.radio(i, ["PASS","DEFECT","FAIL"], key=i)
+            results[i] = status
+
+            if status != "PASS":
+                notes[i] = st.text_area(f"{i} note")
+
+        if "FAIL" in results.values():
+            overall = "FAIL"
+        elif "DEFECT" in results.values():
+            overall = "PASS_WITH_DEFECT"
+        else:
+            overall = "PASS"
+
+        st.write("Result:", overall)
+
+        if st.button("Submit Check"):
+
+            new = pd.DataFrame([{
+                "Date": datetime.now().strftime("%Y-%m-%d"),
+                "Driver": st.session_state.user,
+                "Vehicle": vehicle,
+                "Status": overall,
+                "Defects": str(notes)
+            }])
+
+            checks = pd.concat([checks, new], ignore_index=True)
+            save_csv(checks, CHECKS_FILE)
+
+            st.success("Check submitted")
+
+    # -------------------
+    # JOBS VIEW (READ ONLY)
+    # -------------------
+    with tab2:
+
+        st.subheader("Assigned Jobs")
+
+        st.dataframe(jobs)
 
 # =========================
-# RHA CHECK
+# OFFICE VIEW (ADMIN)
 # =========================
-if app == "RHA Check":
+if role == "office":
 
-    st.header("RHA Check")
+    st.header("Office Dashboard")
 
-    items = ["Tyres","Brakes","Lights","Mirrors"]
+    tab1, tab2 = st.tabs(["Jobs","Drivers"])
 
-    results = {}
-    notes = {}
+    # -------------------
+    # JOB CREATION
+    # -------------------
+    with tab1:
 
-    for i in items:
-        st.subheader(i)
+        vehicle = st.selectbox("Vehicle", vehicles)
+        job_text = st.text_input("Job Description")
 
-        status = st.radio(i, ["PASS","DEFECT","FAIL"], key=i)
-        results[i] = status
+        if st.button("Create Job"):
 
-        if status != "PASS":
-            notes[i] = st.text_area(f"{i} note")
+            new = pd.DataFrame([{
+                "Date": datetime.now().strftime("%Y-%m-%d"),
+                "Vehicle": vehicle,
+                "Job": job_text,
+                "Status": "OPEN"
+            }])
 
-    if "FAIL" in results.values():
-        overall = "FAIL"
-    elif "DEFECT" in results.values():
-        overall = "PASS_WITH_DEFECT"
-    else:
-        overall = "PASS"
-
-    st.write("Status:", overall)
-
-    if st.button("Submit Check"):
-
-        defect_text = " | ".join([f"{k}:{v}" for k,v in notes.items()])
-
-        checks = load_csv(CHECKS_FILE, checks_cols)
-
-        new = pd.DataFrame([{
-            "Date": datetime.now().strftime("%Y-%m-%d"),
-            "Time": datetime.now().strftime("%H:%M:%S"),
-            "Driver": st.session_state.user,
-            "Vehicle": vehicle,
-            "Latitude": lat,
-            "Longitude": lon,
-            "Defects": defect_text,
-            "Status": overall
-        }])
-
-        checks = pd.concat([checks, new], ignore_index=True)
-        save_csv(checks, CHECKS_FILE)
-
-        if overall != "PASS":
-            jobs = load_csv(JOBS_FILE, jobs_cols)
-
-            for k,v in notes.items():
-                j = pd.DataFrame([{
-                    "Date": datetime.now().strftime("%Y-%m-%d"),
-                    "Vehicle": vehicle,
-                    "Job": f"{k}:{v}",
-                    "Status": "OPEN"
-                }])
-                jobs = pd.concat([jobs, j], ignore_index=True)
-
+            jobs = pd.concat([jobs, new], ignore_index=True)
             save_csv(jobs, JOBS_FILE)
+            st.rerun()
 
-            send_email_alert("Vehicle Issue", defect_text)
+        st.dataframe(jobs)
 
-        st.success("Check saved")
-        st.rerun()
+    # -------------------
+    # DRIVER MANAGEMENT
+    # -------------------
+    with tab2:
+
+        st.subheader("Add Driver")
+
+        new_user = st.text_input("Username")
+        new_pass = st.text_input("Password")
+
+        if st.button("Add Driver"):
+            new = pd.DataFrame([{
+                "Username": new_user,
+                "Password": new_pass,
+                "Role": "driver"
+            }])
+
+            users = pd.concat([users, new], ignore_index=True)
+            save_csv(users, USERS_FILE)
+            st.rerun()
+
+        st.subheader("Remove Driver")
+
+        for i,row in users.iterrows():
+            if row["Role"] == "driver":
+                col1,col2 = st.columns([3,1])
+                col1.write(row["Username"])
+
+                if col2.button("Remove", key=i):
+                    users = users.drop(i)
+                    save_csv(users, USERS_FILE)
+                    st.rerun()
 
 # =========================
-# MANAGER
+# MANAGER VIEW (TM)
 # =========================
-if app == "Manager":
+if role == "manager":
 
     st.header("Manager Dashboard")
 
-    checks = load_csv(CHECKS_FILE, checks_cols)
-    jobs = load_csv(JOBS_FILE, jobs_cols)
+    tab1, tab2, tab3 = st.tabs(["Checks","Jobs","Fleet"])
 
-    st.write("Total checks:", len(checks))
+    # -------------------
+    # CHECK MONITORING
+    # -------------------
+    with tab1:
 
-    st.subheader("Open Jobs")
-    st.dataframe(jobs[jobs["Status"]=="OPEN"])
+        st.subheader("Vehicle Checks")
 
-# =========================
-# SETTINGS
-# =========================
-if app == "Settings":
+        if checks.empty:
+            st.info("No data")
+        else:
+            st.dataframe(checks)
 
-    st.header("Email Settings")
+    # -------------------
+    # JOB MONITORING
+    # -------------------
+    with tab2:
 
-    email = st.text_input("Email")
-    password = st.text_input("App Password", type="password")
+        st.subheader("Jobs")
 
-    if st.button("Save"):
-        df = pd.DataFrame([{"Email": email, "Password": password}])
-        save_csv(df, SETTINGS_FILE)
-        st.success("Saved")
+        for i,row in jobs.iterrows():
+            c1,c2 = st.columns([3,1])
+            c1.write(row["Job"])
 
-# =========================
-# USER MANAGEMENT
-# =========================
-if app == "Users":
+            if row["Status"] == "OPEN":
+                if c2.button("Complete", key=f"job{i}"):
+                    jobs.loc[i,"Status"] = "DONE"
+                    save_csv(jobs, JOBS_FILE)
+                    st.rerun()
 
-    st.header("Driver Management")
+    # -------------------
+    # VEHICLE MANAGEMENT
+    # -------------------
+    with tab3:
 
-    users = load_csv(USERS_FILE, users_cols)
+        st.subheader("Add Vehicle")
+        new_vehicle = st.text_input("Vehicle name")
 
-    st.subheader("Add Driver")
-    u = st.text_input("Username")
-    p = st.text_input("Password")
+        if st.button("Add Vehicle"):
+            vehicles_df = pd.concat(
+                [vehicles_df, pd.DataFrame({"Vehicle":[new_vehicle]})],
+                ignore_index=True
+            )
+            save_csv(vehicles_df, VEHICLE_FILE)
+            st.rerun()
 
-    if st.button("Add Driver"):
-        new = pd.DataFrame([{"Username":u,"Password":p,"Role":"driver"}])
-        users = pd.concat([users, new], ignore_index=True)
+        st.subheader("Remove Vehicle")
+
+        for i,row in vehicles_df.iterrows():
+            col1,col2 = st.columns([3,1])
+            col1.write(row["Vehicle"])
+
+            if col2.button("Remove", key=f"veh{i}"):
+                vehicles_df = vehicles_df.drop(i)
+                save_csv(vehicles_df, VEHICLE_FILE)
+                st.rerun()
