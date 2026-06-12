@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
-# FILES / FOLDERS
+# FILES
 # =========================
 HOURS_FILE = "hours.csv"
 CHECKS_FILE = "data.csv"
@@ -16,18 +16,28 @@ PHOTO_DIR = "photos"
 os.makedirs(PHOTO_DIR, exist_ok=True)
 
 # =========================
-# LOAD / SAVE FUNCTIONS
+# LOAD / SAVE
 # =========================
 def load_csv(file, cols):
     if os.path.exists(file):
         try:
-            return pd.read_csv(file)
+            df = pd.read_csv(file)
         except:
-            return pd.DataFrame(columns=cols)
-    return pd.DataFrame(columns=cols)
+            df = pd.DataFrame(columns=cols)
+    else:
+        df = pd.DataFrame(columns=cols)
+
+    # ensure columns always exist
+    for col in cols:
+        if col not in df.columns:
+            df[col] = ""
+
+    return df
+
 
 def save_csv(df, file):
     df.to_csv(file, index=False)
+
 
 hours_cols = ["Driver","Vehicle","Type","Start","End","Duration","Latitude","Longitude"]
 checks_cols = ["Date","Time","Driver","Vehicle","Latitude","Longitude","Defects","Status"]
@@ -43,20 +53,20 @@ if "current" not in st.session_state:
     st.session_state.current = None
 
 # =========================
-# LOGIN SYSTEM
+# LOGIN
 # =========================
-users = {"david":"1234","john":"1234"}
+users = {"david": "1234", "john": "1234"}
 
 if not st.session_state.logged_in:
     st.title("FleetCheck Pro")
 
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        if username in users and users[username] == password:
+        if u in users and users[u] == p:
             st.session_state.logged_in = True
-            st.session_state.user = username
+            st.session_state.user = u
             st.rerun()
         else:
             st.error("Login failed")
@@ -64,12 +74,11 @@ if not st.session_state.logged_in:
     st.stop()
 
 # =========================
-# MAIN NAV (3 APPS)
+# NAV
 # =========================
-app = st.sidebar.radio("Select App", ["Driver Hours","Jobs","RHA Check"])
+app = st.sidebar.radio("Select App", ["Driver Hours", "Jobs", "RHA Check"])
 
-vehicle = st.sidebar.selectbox("Vehicle", ["AB12 XYZ","BT23 FLEET"])
-
+vehicle = st.sidebar.selectbox("Vehicle", ["AB12 XYZ", "BT23 FLEET"])
 lat = st.sidebar.text_input("Latitude")
 lon = st.sidebar.text_input("Longitude")
 
@@ -82,9 +91,11 @@ if app == "Driver Hours":
 
     def get_hours():
         df = load_csv(HOURS_FILE, hours_cols)
-        df = df[df.get("Driver") == st.session_state.user]
+
         if not df.empty:
+            df = df[df["Driver"] == st.session_state.user]
             df["Start"] = pd.to_datetime(df["Start"], errors="coerce")
+
         return df
 
     def can_drive():
@@ -103,17 +114,21 @@ if app == "Driver Hours":
                 return False
 
         if st.session_state.current:
-            mins = int((datetime.now() - st.session_state.current["start"]).total_seconds()/60)
+            mins = int((datetime.now() - st.session_state.current["start"]).total_seconds() / 60)
             if mins >= 270:
                 return False
 
         return True
 
-    def start(act):
-        if act == "DRIVING" and not can_drive():
+    def start(activity):
+        if activity == "DRIVING" and not can_drive():
             st.error("Driving blocked (DVSA)")
             return
-        st.session_state.current = {"type": act, "start": datetime.now()}
+
+        st.session_state.current = {
+            "type": activity,
+            "start": datetime.now()
+        }
 
     def stop():
         if not st.session_state.current:
@@ -121,16 +136,3 @@ if app == "Driver Hours":
 
         df = load_csv(HOURS_FILE, hours_cols)
 
-        start_time = st.session_state.current["start"]
-        end_time = datetime.now()
-
-        minutes = int((end_time - start_time).total_seconds()/60)
-
-        new = pd.DataFrame([{
-            "Driver": st.session_state.user,
-            "Vehicle": vehicle,
-            "Type": st.session_state.current["type"],
-            "Start": start_time,
-            "End": end_time,
-            "Duration": minutes,
-            "Latitude": lat,
