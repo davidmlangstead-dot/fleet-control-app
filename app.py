@@ -66,7 +66,7 @@ df = load_data()
 jobs = load_jobs()
 
 # =========================
-# DEMO DATA (IMPORTANT)
+# DEMO DATA
 # =========================
 if df.empty:
     df = pd.DataFrame([{
@@ -101,8 +101,8 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
 
-    st.title("🚚 FleetCheck Pro")
-    st.markdown("Vehicle Inspection & Compliance System")
+    st.title("FleetCheck Pro")
+    st.write("Vehicle Inspection & Compliance System")
 
     u = st.text_input("Username").lower()
     p = st.text_input("Password", type="password")
@@ -140,7 +140,7 @@ else:
 page = st.radio("", pages, horizontal=True)
 
 # =========================
-# DRIVER
+# DRIVER PAGE
 # =========================
 if page == "Driver":
 
@@ -173,12 +173,12 @@ if page == "Driver":
         seatbelt,oil,coolant,load,plates
     ])
 
-    st.subheader("Photos (4 sides)")
+    st.subheader("Photos")
 
-    front = st.file_uploader("Front", type=["jpg","png"])
-    back = st.file_uploader("Back", type=["jpg","png"])
-    left = st.file_uploader("Left", type=["jpg","png"])
-    right = st.file_uploader("Right", type=["jpg","png"])
+    front = st.file_uploader("Front")
+    back = st.file_uploader("Back")
+    left = st.file_uploader("Left")
+    right = st.file_uploader("Right")
 
     if ok:
         st.markdown("<div class='pass'>PASS</div>", unsafe_allow_html=True)
@@ -206,7 +206,7 @@ if page == "Driver":
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
         save_data(df)
 
-        st.success("Saved with GPS + Photos")
+        st.success("Saved")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -215,19 +215,19 @@ if page == "Driver":
 # =========================
 if page == "Dashboard":
 
-    st.metric("Total Checks", len(df))
-    st.metric("Active Defects", len(df[df["Status"]=="FAIL"]))
-    st.metric("Fixed", len(df[df["Status"]=="FIXED"]))
+    st.subheader("Overview")
 
-    st.subheader("Records")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total", len(df))
+    col2.metric("Active Defects", len(df[df["Status"]=="FAIL"]))
+    col3.metric("Fixed", len(df[df["Status"]=="FIXED"]))
+
     st.dataframe(df, use_container_width=True)
 
 # =========================
-# JOBS (OFFICE)
+# JOBS
 # =========================
 if page == "Jobs":
-
-    st.subheader("Create Job")
 
     veh = st.selectbox("Vehicle", VEHICLES)
     job = st.text_input("Job")
@@ -248,15 +248,12 @@ if page == "Jobs":
 
         st.success("Job added")
 
-    st.subheader("Open Jobs")
-    st.dataframe(jobs[jobs["Status"]=="OPEN"], use_container_width=True)
+    st.dataframe(jobs, use_container_width=True)
 
 # =========================
 # WORKSHOP
 # =========================
 if page == "Workshop":
-
-    st.subheader("Workshop Repairs")
 
     open_jobs = jobs[jobs["Status"]=="OPEN"]
 
@@ -279,4 +276,3 @@ if page == "Workshop":
             df.loc[i,"Status"] = "FIXED"
             save_data(df)
             st.rerun()
-``
