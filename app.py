@@ -9,39 +9,7 @@ JOBS_FILE = "jobs.csv"
 st.set_page_config(layout="wide", page_title="Fleet Control Pro")
 
 # =========================
-# STYLE (PRO UI)
-# =========================
-st.markdown("""
-<style>
-html, body {
-    background-color: #0b1220;
-    color: #e2e8f0;
-}
-.block-container {max-width:1200px; margin:auto;}
-
-.topbar {
-    background:#020617;
-    padding:18px;
-    border-radius:10px;
-    margin-bottom:20px;
-    display:flex;
-    justify-content:space-between;
-}
-
-.card {
-    background:#1c2433;
-    padding:20px;
-    border-radius:12px;
-    margin-bottom:20px;
-}
-
-.pass {color:#10b981; font-weight:bold;}
-.fail {color:#ef4444; font-weight:bold;}
-</style>
-""", unsafe_allow_html=True)
-
-# =========================
-# DATA
+# LOAD / SAVE
 # =========================
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -85,7 +53,7 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
 
-    st.markdown("<h2>Fleet Control Pro</h2>", unsafe_allow_html=True)
+    st.title("Fleet Control Pro")
 
     u = st.text_input("Username").lower()
     p = st.text_input("Password", type="password")
@@ -102,31 +70,36 @@ if not st.session_state.logged_in:
     st.stop()
 
 # =========================
-# HEADER
+# HEADER + LOGOUT
 # =========================
-st.markdown(f"""
-<div class="topbar">
-<div>Fleet Control Pro</div>
-<div>User: {st.session_state.user}</div>
-</div>
-""", unsafe_allow_html=True)
+col1, col2 = st.columns([6,1])
+
+col1.write(f"Logged in as: {st.session_state.user}")
+
+if col2.button("Logout"):
+    st.session_state.logged_in = False
+    st.rerun()
 
 # =========================
-# NAV
+# NAV (ROLE BASED)
 # =========================
-page = st.radio("", ["Driver","Dashboard","Workshop","Jobs"], horizontal=True)
+if st.session_state.role == "driver":
+    pages = ["Driver"]
+
+else:
+    pages = ["Dashboard","Jobs","Workshop"]
+
+page = st.radio("", pages, horizontal=True)
 
 # =========================
 # DRIVER
 # =========================
 if page == "Driver":
 
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-
     vehicle = st.selectbox("Vehicle", VEHICLES)
     odo = st.number_input("Odometer", 0)
 
-    st.markdown("### Checks")
+    st.subheader("Checks")
 
     tyres = st.checkbox("Tyres")
     brakes = st.checkbox("Brakes")
@@ -145,10 +118,10 @@ if page == "Driver":
     ])
 
     if ok:
-        st.markdown("<div class='pass'>PASS</div>", unsafe_allow_html=True)
+        st.success("PASS")
         defect = "NIL DEFECT"
     else:
-        st.markdown("<div class='fail'>FAIL</div>", unsafe_allow_html=True)
+        st.error("FAIL")
         defect = st.text_area("Defect")
 
     if st.button("Submit"):
@@ -168,72 +141,31 @@ if page == "Driver":
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         save_data(df)
 
-        st.success("Check saved")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.success("Saved")
 
 # =========================
-# DASHBOARD (ALWAYS SHOW)
+# DASHBOARD
 # =========================
 if page == "Dashboard":
 
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Fleet Overview")
 
-    total = len(df)
-    fails = len(df[df["Status"]=="FAIL"])
-    fixed = len(df[df["Status"]=="FIXED"])
+    st.metric("Total Checks", len(df))
+    st.metric("Fails", len(df[df["Status"]=="FAIL"]))
 
-    col1,col2,col3 = st.columns(3)
-    col1.metric("Total", total)
-    col2.metric("Active Defects", fails)
-    col3.metric("Fixed", fixed)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ALWAYS SHOW TABLE
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-
-    st.subheader("All Activity")
+    st.subheader("Records")
 
     if df.empty:
         st.info("No data yet")
     else:
         st.dataframe(df, use_container_width=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
 # =========================
-# WORKSHOP (FIX DEFECTS)
-# =========================
-if page == "Workshop":
-
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-
-    fails = df[df["Status"]=="FAIL"]
-
-    if fails.empty:
-        st.info("No defects")
-    else:
-        for i, r in fails.iterrows():
-            col1,col2 = st.columns([3,1])
-
-            col1.write(f"{r['Vehicle']} - {r['Defects']}")
-
-            if col2.button("Fix", key=i):
-                df.loc[i,"Status"] = "FIXED"
-                save_data(df)
-                st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# =========================
-# JOB REPORTING (NEW)
+# JOBS (OFFICE)
 # =========================
 if page == "Jobs":
 
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-
-    st.subheader("Log Job")
+    st.subheader("Create Job")
 
     veh = st.selectbox("Vehicle", VEHICLES)
     job = st.text_input("Job Description")
@@ -252,26 +184,58 @@ if page == "Jobs":
         jobs = pd.concat([jobs, pd.DataFrame([new_job])], ignore_index=True)
         save_jobs(jobs)
 
-        st.success("Job added")
+        st.success("Job created")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("---")
 
-    # JOB LIST
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Open Jobs")
 
-    st.subheader("Active Jobs")
+    open_jobs = jobs[jobs["Status"]=="OPEN"]
 
-    if jobs.empty:
-        st.info("No jobs logged")
+    if open_jobs.empty:
+        st.info("No open jobs")
     else:
-        for i, r in jobs.iterrows():
+        st.dataframe(open_jobs, use_container_width=True)
+
+# =========================
+# WORKSHOP (REPAIRS)
+# =========================
+if page == "Workshop":
+
+    st.subheader("Workshop Repairs")
+
+    open_jobs = jobs[jobs["Status"]=="OPEN"]
+
+    if open_jobs.empty:
+        st.info("No jobs to complete")
+    else:
+        for i, r in open_jobs.iterrows():
+
             col1, col2 = st.columns([3,1])
 
             col1.write(f"{r['Vehicle']} - {r['Job']} ({r['Engineer']})")
 
-            if col2.button("Complete", key=f"job{i}"):
+            if col2.button("Complete", key=i):
                 jobs.loc[i,"Status"] = "COMPLETE"
                 save_jobs(jobs)
                 st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    st.subheader("Fix Defects")
+
+    fails = df[df["Status"]=="FAIL"]
+
+    if fails.empty:
+        st.info("No defects")
+    else:
+        for i, r in fails.iterrows():
+
+            col1, col2 = st.columns([3,1])
+
+            col1.write(r["Vehicle"] + " - " + r["Defects"])
+
+            if col2.button("Fix", key=f"fix{i}"):
+                df.loc[i,"Status"] = "FIXED"
+                save_data(df)
+                st.rerun()
