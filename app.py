@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="FleetCheck Pro", layout="wide")
+st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
 # FILES
@@ -12,7 +12,6 @@ HOURS_FILE = "hours.csv"
 CHECKS_FILE = "data.csv"
 JOBS_FILE = "jobs.csv"
 PHOTO_DIR = "photos"
-
 os.makedirs(PHOTO_DIR, exist_ok=True)
 
 # =========================
@@ -33,16 +32,11 @@ hours_cols = ["Driver","Vehicle","Type","Start","End","Duration","Latitude","Lon
 checks_cols = ["Date","Time","Driver","Vehicle","Latitude","Longitude","Defects","Status"]
 jobs_cols = ["Date","Vehicle","Job","Status"]
 
-hours = load_csv(HOURS_FILE, hours_cols)
-checks = load_csv(CHECKS_FILE, checks_cols)
-jobs = load_csv(JOBS_FILE, jobs_cols)
-
 # =========================
 # SESSION
 # =========================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
 if "current" not in st.session_state:
     st.session_state.current = None
 
@@ -53,7 +47,6 @@ users = {"david":"1234","john":"1234"}
 
 if not st.session_state.logged_in:
     st.title("FleetCheck Pro")
-
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
 
@@ -64,124 +57,28 @@ if not st.session_state.logged_in:
             st.rerun()
         else:
             st.error("Login failed")
-
     st.stop()
 
 # =========================
-# NAV
+# MAIN NAV (3 APPS)
 # =========================
-page = st.radio("", ["Driver","Jobs","AI"], horizontal=True)
+app = st.sidebar.radio("Select App", ["Driver Hours","Jobs","RHA Check"])
+
+vehicle = st.sidebar.selectbox("Vehicle", ["AB12 XYZ","BT23 FLEET"])
+
+lat = st.sidebar.text_input("Latitude")
+lon = st.sidebar.text_input("Longitude")
 
 # =========================
-# DRIVER PAGE
+# APP 1 - DRIVER HOURS
 # =========================
-if page == "Driver":
+if app == "Driver Hours":
 
-    st.header("Driver Panel")
-
-    vehicle = st.selectbox("Vehicle", ["AB12 XYZ","BT23 FLEET"])
-
-    # -------- GPS --------
-    st.subheader("GPS")
-    lat = st.text_input("Latitude")
-    lon = st.text_input("Longitude")
-
-    # ================= CHECKS =================
-    st.subheader("Vehicle Check")
-
-    check_items = [
-        "Tyres","Brakes","Lights","Mirrors",
-        "Horn","Seatbelt","Oil","Coolant",
-        "Load Secure","Plates"
-    ]
-
-    results = {}
-    notes = {}
-    photos_data = {}
-
-    for item in check_items:
-
-        st.markdown(f"### {item}")
-
-        status = st.radio(
-            item,
-            ["PASS","FAIL","NA"],
-            key=item,
-            horizontal=True
-        )
-
-        results[item] = status
-
-        if status == "FAIL":
-            notes[item] = st.text_area(f"{item} note", key=f"{item}_note")
-
-            photo = st.file_uploader(f"{item} photo", key=f"{item}_photo")
-            if photo:
-                filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{item}.jpg"
-                path = os.path.join(PHOTO_DIR, filename)
-
-                with open(path, "wb") as f:
-                    f.write(photo.getbuffer())
-
-                photos_data[item] = filename
-
-    overall = "PASS"
-    if "FAIL" in results.values():
-        overall = "FAIL"
-
-    if overall == "FAIL":
-        st.error("Vehicle FAILED")
-    else:
-        st.success("Vehicle PASSED")
-
-    # SAVE CHECK
-    if st.button("Save Check"):
-
-        defects = []
-        for k,v in notes.items():
-            defects.append(f"{k}:{v}")
-
-        defect_text = " | ".join(defects)
-
-        new_check = pd.DataFrame([{
-            "Date": datetime.now().strftime("%Y-%m-%d"),
-            "Time": datetime.now().strftime("%H:%M:%S"),
-            "Driver": st.session_state.user,
-            "Vehicle": vehicle,
-            "Latitude": lat,
-            "Longitude": lon,
-            "Defects": defect_text,
-            "Status": overall
-        }])
-
-        checks = pd.concat([checks, new_check], ignore_index=True)
-        save_csv(checks, CHECKS_FILE)
-
-        # AUTO JOB CREATE IF FAIL
-        if overall == "FAIL":
-            for k,v in notes.items():
-                new_job = pd.DataFrame([{
-                    "Date": datetime.now().strftime("%Y-%m-%d"),
-                    "Vehicle": vehicle,
-                    "Job": f"{k}: {v}",
-                    "Status": "OPEN"
-                }])
-
-                jobs = pd.concat([jobs, new_job], ignore_index=True)
-
-            save_csv(jobs, JOBS_FILE)
-
-        st.success("Saved ✅")
-        st.rerun()
-
-    st.divider()
-
-    # ================= HOURS =================
-    st.subheader("Driver Hours")
+    st.header("Driver Hours")
 
     def get_hours():
         df = load_csv(HOURS_FILE, hours_cols)
-        df = df[df["Driver"] == st.session_state.user]
+        df = df[df.get("Driver","") == st.session_state.user]
         if not df.empty:
             df["Start"] = pd.to_datetime(df["Start"])
         return df
@@ -208,11 +105,11 @@ if page == "Driver":
 
         return True
 
-    def start(act):
-        if act == "DRIVING" and not can_drive():
+    def start(activity):
+        if activity == "DRIVING" and not can_drive():
             st.error("Driving blocked (DVSA)")
             return
-        st.session_state.current = {"type": act, "start": datetime.now()}
+        st.session_state.current = {"type": activity, "start": datetime.now()}
 
     def stop():
         if not st.session_state.current:
@@ -222,7 +119,6 @@ if page == "Driver":
 
         start_t = st.session_state.current["start"]
         end_t = datetime.now()
-
         mins = int((end_t - start_t).total_seconds()/60)
 
         new = pd.DataFrame([{
@@ -248,22 +144,34 @@ if page == "Driver":
     c3.button("POA", on_click=start, args=("POA",))
     c4.button("Other", on_click=start, args=("OTHER",))
 
-    st.button("Stop Activity", on_click=stop)
+    st.button("Stop", on_click=stop)
 
     if st.session_state.current:
         mins = int((datetime.now() - st.session_state.current["start"]).total_seconds()/60)
         st.info(f"{st.session_state.current['type']} - {mins} mins")
 
-    st.dataframe(get_hours())
+    st.dataframe(get_hours().tail(10))
 
 # =========================
-# JOBS PAGE
+# APP 2 - JOBS
 # =========================
-if page == "Jobs":
+if app == "Jobs":
 
     st.header("Jobs")
 
     jobs = load_csv(JOBS_FILE, jobs_cols)
+
+    job_text = st.text_input("Add Job")
+    if st.button("Create Job"):
+        new = pd.DataFrame([{
+            "Date": datetime.now().strftime("%Y-%m-%d"),
+            "Vehicle": vehicle,
+            "Job": job_text,
+            "Status": "OPEN"
+        }])
+        jobs = pd.concat([jobs, new], ignore_index=True)
+        save_csv(jobs, JOBS_FILE)
+        st.rerun()
 
     if jobs.empty:
         st.info("No jobs")
@@ -273,38 +181,80 @@ if page == "Jobs":
             c1.write(f"{row['Vehicle']} - {row['Job']}")
 
             if row["Status"] == "OPEN":
-                if c2.button("Complete", key=i):
+                if c2.button("Done", key=i):
                     jobs.loc[i,"Status"] = "DONE"
                     save_csv(jobs, JOBS_FILE)
                     st.rerun()
 
-    st.dataframe(jobs)
-
 # =========================
-# AI PAGE
+# APP 3 - RHA CHECK SHEET
 # =========================
-if page == "AI":
+if app == "RHA Check":
 
-    st.header("AI Analysis")
+    st.header("RHA Daily Check")
 
-    df = load_csv(HOURS_FILE, hours_cols)
+    checks = load_csv(CHECKS_FILE, checks_cols)
 
-    if df.empty:
-        st.info("No data")
-    else:
-        for d in df["Driver"].unique():
+    items = [
+        "Tyres","Brakes","Lights","Mirrors",
+        "Horn","Seatbelt","Oil","Coolant",
+        "Load Secure","Plates"
+    ]
 
-            ddf = df[df["Driver"] == d]
-            total = ddf[ddf["Type"]=="DRIVING"]["Duration"].sum()
+    results = {}
+    notes = {}
 
-            st.write("---")
-            st.write(f"Driver: {d}")
-            st.write(f"Driving total: {total}")
+    for item in items:
+        with st.expander(item):
 
-            if total > 3000:
-                st.warning("High workload")
+            status = st.radio(item, ["PASS","FAIL","NA"], key=item)
+            results[item] = status
 
-            violations = ddf[ddf["Duration"] > 270]
-            if not violations.empty:
-                st.error("Violations detected")
-                st.dataframe(violations)
+            if status == "FAIL":
+                notes[item] = st.text_area(f"{item} note", key=f"{item}_note")
+
+                photo = st.file_uploader(f"{item} photo", key=f"{item}_photo")
+
+                if photo:
+                    path = os.path.join(PHOTO_DIR, f"{datetime.now().timestamp()}_{item}.jpg")
+                    with open(path, "wb") as f:
+                        f.write(photo.getbuffer())
+
+    overall = "FAIL" if "FAIL" in results.values() else "PASS"
+
+    if st.button("Submit RHA Check"):
+
+        defect_text = " | ".join([f"{k}:{v}" for k,v in notes.items()])
+
+        new = pd.DataFrame([{
+            "Date": datetime.now().strftime("%Y-%m-%d"),
+            "Time": datetime.now().strftime("%H:%M:%S"),
+            "Driver": st.session_state.user,
+            "Vehicle": vehicle,
+            "Latitude": lat,
+            "Longitude": lon,
+            "Defects": defect_text,
+            "Status": overall
+        }])
+
+        checks = pd.concat([checks, new], ignore_index=True)
+        save_csv(checks, CHECKS_FILE)
+
+        # AUTO JOBS
+        if overall == "FAIL":
+            jobs = load_csv(JOBS_FILE, jobs_cols)
+
+            for k,v in notes.items():
+                job = pd.DataFrame([{
+                    "Date": datetime.now().strftime("%Y-%m-%d"),
+                    "Vehicle": vehicle,
+                    "Job": f"{k}: {v}",
+                    "Status": "OPEN"
+                }])
+                jobs = pd.concat([jobs, job], ignore_index=True)
+
+            save_csv(jobs, JOBS_FILE)
+
+        st.success("Check submitted ✅")
+        st.rerun()
+``
