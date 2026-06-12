@@ -6,7 +6,7 @@ import os
 DATA_FILE = "data.csv"
 JOBS_FILE = "jobs.csv"
 
-st.set_page_config(layout="wide", page_title="Fleet Control Pro")
+st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
 # STYLE
@@ -23,13 +23,13 @@ html, body {
 }
 .topbar {
     background:#020617;
-    padding:18px;
+    padding:15px;
     border-radius:10px;
     margin-bottom:20px;
 }
 .card {
     background:#1c2433;
-    padding:20px;
+    padding:18px;
     border-radius:12px;
     margin-bottom:20px;
 }
@@ -66,6 +66,23 @@ df = load_data()
 jobs = load_jobs()
 
 # =========================
+# DEMO DATA (IMPORTANT)
+# =========================
+if df.empty:
+    df = pd.DataFrame([{
+        "Date":"2026-06-01",
+        "Time":"08:00:00",
+        "Driver":"david",
+        "Vehicle":"AB12 XYZ",
+        "Odometer":100000,
+        "Latitude":"51.5",
+        "Longitude":"0.1",
+        "Defects":"Brake issue",
+        "Status":"FAIL"
+    }])
+    save_data(df)
+
+# =========================
 # USERS
 # =========================
 users = {
@@ -84,7 +101,8 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
 
-    st.title("🚚 Fleet Control Pro")
+    st.title("🚚 FleetCheck Pro")
+    st.markdown("Vehicle Inspection & Compliance System")
 
     u = st.text_input("Username").lower()
     p = st.text_input("Password", type="password")
@@ -105,16 +123,14 @@ if not st.session_state.logged_in:
 # =========================
 col1, col2 = st.columns([5,1])
 
-with col1:
-    st.markdown(f"<div class='topbar'>User: {st.session_state.user}</div>", unsafe_allow_html=True)
+col1.markdown(f"<div class='topbar'>User: {st.session_state.user}</div>", unsafe_allow_html=True)
 
-with col2:
-    if st.button("Logout"):
-        st.session_state.logged_in = False
-        st.rerun()
+if col2.button("Logout"):
+    st.session_state.logged_in = False
+    st.rerun()
 
 # =========================
-# NAVIGATION
+# NAV
 # =========================
 if st.session_state.role == "driver":
     pages = ["Driver"]
@@ -124,7 +140,7 @@ else:
 page = st.radio("", pages, horizontal=True)
 
 # =========================
-# DRIVER PAGE
+# DRIVER
 # =========================
 if page == "Driver":
 
@@ -134,12 +150,12 @@ if page == "Driver":
     vehicle = col1.selectbox("Vehicle", VEHICLES)
     odo = col2.number_input("Odometer", 0)
 
-    st.subheader("📍 GPS")
+    st.subheader("GPS")
     col1, col2 = st.columns(2)
     lat = col1.text_input("Latitude")
     lon = col2.text_input("Longitude")
 
-    st.subheader("✅ Checks")
+    st.subheader("Checks")
 
     tyres = st.checkbox("Tyres")
     brakes = st.checkbox("Brakes")
@@ -157,7 +173,7 @@ if page == "Driver":
         seatbelt,oil,coolant,load,plates
     ])
 
-    st.subheader("📸 Vehicle Photos")
+    st.subheader("Photos (4 sides)")
 
     front = st.file_uploader("Front", type=["jpg","png"])
     back = st.file_uploader("Back", type=["jpg","png"])
@@ -190,7 +206,7 @@ if page == "Driver":
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
         save_data(df)
 
-        st.success("✅ Saved with GPS + Photos")
+        st.success("Saved with GPS + Photos")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -199,22 +215,15 @@ if page == "Driver":
 # =========================
 if page == "Dashboard":
 
-    st.subheader("Fleet Overview")
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total", len(df))
-    col2.metric("Active Defects", len(df[df["Status"]=="FAIL"]))
-    col3.metric("Fixed", len(df[df["Status"]=="FIXED"]))
+    st.metric("Total Checks", len(df))
+    st.metric("Active Defects", len(df[df["Status"]=="FAIL"]))
+    st.metric("Fixed", len(df[df["Status"]=="FIXED"]))
 
     st.subheader("Records")
-
-    if df.empty:
-        st.info("No data yet")
-    else:
-        st.dataframe(df, use_container_width=True)
+    st.dataframe(df, use_container_width=True)
 
 # =========================
-# JOBS
+# JOBS (OFFICE)
 # =========================
 if page == "Jobs":
 
@@ -239,48 +248,35 @@ if page == "Jobs":
 
         st.success("Job added")
 
-    st.subheader("Jobs")
-
-    if jobs.empty:
-        st.info("No jobs")
-    else:
-        st.dataframe(jobs, use_container_width=True)
+    st.subheader("Open Jobs")
+    st.dataframe(jobs[jobs["Status"]=="OPEN"], use_container_width=True)
 
 # =========================
 # WORKSHOP
 # =========================
 if page == "Workshop":
 
-    st.subheader("Repairs")
+    st.subheader("Workshop Repairs")
 
     open_jobs = jobs[jobs["Status"]=="OPEN"]
 
-    if open_jobs.empty:
-        st.info("No jobs to complete")
-    else:
-        for i,r in open_jobs.iterrows():
-
-            col1,col2 = st.columns([3,1])
-            col1.write(f"{r['Vehicle']} - {r['Job']}")
-
-            if col2.button("Complete", key=i):
-                jobs.loc[i,"Status"] = "COMPLETE"
-                save_jobs(jobs)
-                st.rerun()
+    for i, r in open_jobs.iterrows():
+        col1,col2 = st.columns([3,1])
+        col1.write(f"{r['Vehicle']} - {r['Job']}")
+        if col2.button("Complete", key=i):
+            jobs.loc[i,"Status"] = "COMPLETE"
+            save_jobs(jobs)
+            st.rerun()
 
     st.subheader("Fix Defects")
 
     fails = df[df["Status"]=="FAIL"]
 
-    if fails.empty:
-        st.info("No defects")
-    else:
-        for i,r in fails.iterrows():
-
-            col1,col2 = st.columns([3,1])
-            col1.write(f"{r['Vehicle']} - {r['Defects']}")
-
-            if col2.button("Fix", key=f"f{i}"):
-                df.loc[i,"Status"] = "FIXED"
-                save_data(df)
-                st.rerun()
+    for i,r in fails.iterrows():
+        col1,col2 = st.columns([3,1])
+        col1.write(f"{r['Vehicle']} - {r['Defects']}")
+        if col2.button("Fix", key=f"f{i}"):
+            df.loc[i,"Status"] = "FIXED"
+            save_data(df)
+            st.rerun()
+``
