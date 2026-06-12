@@ -3,7 +3,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 import os
 
+# =========================
 # FILES
+# =========================
 DATA_FILE = "data.csv"
 JOBS_FILE = "jobs.csv"
 HOURS_FILE = "hours.csv"
@@ -11,7 +13,7 @@ HOURS_FILE = "hours.csv"
 st.set_page_config(layout="wide", page_title="FleetCheck Pro")
 
 # =========================
-# LOAD / SAVE
+# SAFE LOAD / SAVE
 # =========================
 def load_csv(file, cols):
     if os.path.exists(file):
@@ -101,9 +103,12 @@ if page == "Driver":
     ">Get GPS</button>
     """, height=50)
 
-    params = st.query_params
-    lat = params.get("lat", "")
-    lon = params.get("lon", "")
+    try:
+        params = st.query_params
+        lat = params.get("lat", "")
+        lon = params.get("lon", "")
+    except:
+        lat, lon = "", ""
 
     c1, c2 = st.columns(2)
     lat = c1.text_input("Latitude", lat)
@@ -120,7 +125,6 @@ if page == "Driver":
 
     def can_drive():
         df = get_driver_data()
-
         if df.empty:
             return True
 
@@ -134,23 +138,17 @@ if page == "Driver":
         drive_week = week_df[week_df["Type"] == "DRIVING"]["Duration"].sum()
 
         if drive_today >= 540:
-            return False, "Daily limit reached (9h)"
+            return False
         if drive_week >= 3360:
-            return False, "Weekly limit reached (56h)"
+            return False
 
-        if st.session_state.current_hours:
-            elapsed = int((datetime.now() - st.session_state.current_hours["start"]).total_seconds() / 60)
-            if elapsed >= 270:
-                return False, "4.5 hour limit reached - must rest"
-
-        return True, ""
+        return True
 
     def start_hours(activity):
 
         if activity == "DRIVING":
-            allowed, msg = can_drive()
-            if allowed is False:
-                st.error(msg)
+            if can_drive() is False:
+                st.error("Driving not allowed — limit reached")
                 return
 
         if st.session_state.current_hours:
@@ -169,7 +167,6 @@ if page == "Driver":
 
         end = datetime.now()
         start = st.session_state.current_hours["start"]
-
         duration = int((end - start).total_seconds() / 60)
 
         new = {
@@ -189,7 +186,6 @@ if page == "Driver":
         st.session_state.current_hours = None
 
     b1, b2, b3, b4 = st.columns(4)
-
     b1.button("Driving", on_click=start_hours, args=("DRIVING",))
     b2.button("Rest", on_click=start_hours, args=("REST",))
     b3.button("POA", on_click=start_hours, args=("POA",))
@@ -197,7 +193,7 @@ if page == "Driver":
 
     st.button("Stop", on_click=stop_hours)
 
-    # ================= LIVE =================
+    # ================= LIVE TIMER =================
     if st.session_state.current_hours:
         elapsed = int((datetime.now() - st.session_state.current_hours["start"]).total_seconds() / 60)
 
@@ -205,17 +201,18 @@ if page == "Driver":
 
         if st.session_state.current_hours["type"] == "DRIVING":
             if elapsed >= 270:
-                st.error("LOCKED - Must rest now")
+                st.error("LOCKED — must take break")
             elif elapsed >= 240:
-                st.warning("Approaching 4.5 hours")
+                st.warning("Approaching 4.5h limit")
 
     st.divider()
 
     # ================= SUMMARY =================
     df_user = get_driver_data()
 
-    if not df_user.empty:
-
+    if df_user.empty:
+        st.info("No logs yet")
+    else:
         today = datetime.now().date()
         week_start = today - timedelta(days=today.weekday())
 
@@ -230,9 +227,9 @@ if page == "Driver":
         st.write(f"Week: {drive_week} mins")
 
         if drive_today >= 540:
-            st.error("Daily limit hit")
+            st.error("Daily limit reached (9h)")
         if drive_week >= 3360:
-            st.error("Weekly limit hit")
+            st.error("Weekly limit reached (56h)")
 
     st.subheader("Logs")
     st.dataframe(df_user, use_container_width=True)
